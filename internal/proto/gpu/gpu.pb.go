@@ -262,7 +262,7 @@ const file_internal_proto_gpu_gpu_proto_rawDesc = "" +
 	"\vpower_watts\x18\t \x01(\x01R\n" +
 	"powerWatts2J\n" +
 	"\fAgentService\x12:\n" +
-	"\rStreamMetrics\x12\x12.gpu.StreamRequest\x1a\x13.gpu.MetricSnapshot0\x01B0Z.github.com/MichaelTrip/kgpudash/internal/proto/gpub\x06proto3"
+	"\rStreamMetrics\x12\x12.gpu.StreamRequest\x1a\x13.gpu.MetricSnapshot0\x01B0Z.github.com/yourorg/kgpudash/internal/proto/gpub\x06proto3"
 
 var (
 	file_internal_proto_gpu_gpu_proto_rawDescOnce sync.Once
