@@ -146,25 +146,57 @@ func (c *IntelCollector) collectSysfs() ([]GPUInfo, error) {
 }
 
 // readUtilization attempts to read GPU busy percentage from sysfs.
+// It uses act_freq/max_freq as a proxy, clamped to [0, 100].
 func (c *IntelCollector) readUtilization(card intelCard) float64 {
-	// xe driver: tile0/gt0/gt_act_freq_mhz vs gt_max_freq_mhz as proxy
-	// i915: /sys/class/drm/card*/gt/gt0/rc6_residency_ms — not a direct util
-	// Best available: read from /sys/class/drm/card*/device/drm/card*/gt/gt0/
-	patterns := []string{
-		filepath.Join(card.path, "tile0", "gt0", "gt_act_freq_mhz"),
-		filepath.Join(card.path, "drm", "card*", "gt", "gt0", "rc6_residency_ms"),
+	// Try xe driver: act_freq / max_freq * 100
+	actPath := filepath.Join(card.path, "tile0", "gt0", "gt_act_freq_mhz")
+	maxPath := filepath.Join(card.path, "tile0", "gt0", "gt_max_freq_mhz")
+
+	actData, actErr := os.ReadFile(actPath)
+	maxData, maxErr := os.ReadFile(maxPath)
+	if actErr == nil && maxErr == nil {
+		act, err1 := strconv.ParseFloat(strings.TrimSpace(string(actData)), 64)
+		max, err2 := strconv.ParseFloat(strings.TrimSpace(string(maxData)), 64)
+		if err1 == nil && err2 == nil && max > 0 {
+			pct := (act / max) * 100.0
+			if pct > 100 {
+				pct = 100
+			}
+			if pct < 0 {
+				pct = 0
+			}
+			return pct
+		}
 	}
-	for _, pat := range patterns {
-		matches, _ := filepath.Glob(pat)
-		for _, f := range matches {
-			if data, err := os.ReadFile(f); err == nil {
-				if v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && v > 0 {
-					// Return as a rough proxy; real utilization needs perf counters
-					return v
+
+	// Try i915 driver: cur_freq / max_freq * 100
+	curPatterns := []string{
+		filepath.Join(card.path, "gt", "gt0", "rps_cur_freq_mhz"),
+		filepath.Join(card.path, "gt0_cur_freq_mhz"),
+	}
+	maxPatterns := []string{
+		filepath.Join(card.path, "gt", "gt0", "rps_max_freq_mhz"),
+		filepath.Join(card.path, "gt0_max_freq_mhz"),
+	}
+	for i := range curPatterns {
+		curData, curErr := os.ReadFile(curPatterns[i])
+		mxData, mxErr := os.ReadFile(maxPatterns[i])
+		if curErr == nil && mxErr == nil {
+			cur, err1 := strconv.ParseFloat(strings.TrimSpace(string(curData)), 64)
+			mx, err2 := strconv.ParseFloat(strings.TrimSpace(string(mxData)), 64)
+			if err1 == nil && err2 == nil && mx > 0 {
+				pct := (cur / mx) * 100.0
+				if pct > 100 {
+					pct = 100
 				}
+				if pct < 0 {
+					pct = 0
+				}
+				return pct
 			}
 		}
 	}
+
 	return 0
 }
 

@@ -229,7 +229,7 @@ function openHistory(nodeName, gpu) {
   state.historyGPU  = gpu;
 
   const panel = document.getElementById('history-panel');
-  panel.hidden = false;
+  panel.classList.add('visible');
   document.getElementById('history-title').textContent =
     `${gpu.name} · GPU ${gpu.index} · ${nodeName}`;
 
@@ -237,7 +237,7 @@ function openHistory(nodeName, gpu) {
 }
 
 function closeHistory() {
-  document.getElementById('history-panel').hidden = true;
+  document.getElementById('history-panel').classList.remove('visible');
   state.historyNode = null;
   state.historyGPU  = null;
   destroyCharts();
