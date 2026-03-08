@@ -58,10 +58,13 @@ func (s *Server) registerRoutes() {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 
-	// Redirect bare "/" to the dashboard.
+	// Serve index.html directly for "/" without a redirect so that
+	// port-forwarded and proxied deployments work correctly.
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/index.html", http.StatusFound)
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/index.html"
+			fileServer.ServeHTTP(w, r2)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
