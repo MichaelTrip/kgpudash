@@ -20,7 +20,7 @@ spec:
 
       containers:
         - name: server
-          image: ghcr.io/michaeltrip/kgpudash-server:v1.0.5
+          image: ghcr.io/michaeltrip/kgpudash-server:v1.0.6
           imagePullPolicy: Always
 
           ports:
