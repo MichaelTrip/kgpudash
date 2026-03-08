@@ -15,17 +15,10 @@ function applyTheme(theme) {
     icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
   }
   localStorage.setItem(THEME_KEY, theme);
-  // Re-render charts with correct grid colours if open
-  if (state.historyNode) loadHistory();
+  // Re-render charts with correct grid colours if the history panel is open.
+  // Guard against being called before state is initialised.
+  if (typeof state !== 'undefined' && state.historyNode) loadHistory();
 }
-
-document.getElementById('theme-toggle').addEventListener('click', () => {
-  const current = document.documentElement.getAttribute('data-bs-theme') || 'dark';
-  applyTheme(current === 'dark' ? 'light' : 'dark');
-});
-
-// Apply saved / system theme immediately
-applyTheme(getTheme());
 
 // ── State ───────────────────────────────────────────────────────────────────
 const state = {
@@ -424,6 +417,11 @@ document.getElementById('filter-node').addEventListener('change', renderGrid);
 document.getElementById('filter-pod').addEventListener('input', renderGrid);
 document.getElementById('history-close').addEventListener('click', closeHistory);
 
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-bs-theme') || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+});
+
 document.querySelectorAll('.kgpu-range-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.kgpu-range-btn').forEach(b => b.classList.remove('active'));
@@ -434,4 +432,6 @@ document.querySelectorAll('.kgpu-range-btn').forEach(btn => {
 });
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
+// Apply saved / system theme (state is now initialised so applyTheme is safe).
+applyTheme(getTheme());
 connectWS();

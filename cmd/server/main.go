@@ -75,7 +75,8 @@ func main() {
 	// ── Discover and connect to agents ───────────────────────────────
 	// The aggregator watches for agent pods via the Kubernetes API.
 	// We start a goroutine that periodically discovers agent pod IPs
-	// and connects to any new ones.
+	// and connects to any new ones, cancelling stale connections when
+	// a pod IP changes.
 	go watchAgentPods(ctx, log, agg, mapper, agentPort)
 
 	// ── Web server ───────────────────────────────────────────────────
@@ -95,46 +96,53 @@ func main() {
 	}
 }
 
+// agentConn tracks the current connection state for one agent node.
+type agentConn struct {
+	addr   string
+	cancel context.CancelFunc
+}
+
 // watchAgentPods periodically discovers kgpudash-agent pods via the Kubernetes
-// API and connects the aggregator to any new agents.
+// API and connects the aggregator to any new agents. When a pod's IP changes
+// (e.g. after a restart), the old connection goroutine is cancelled and a new
+// one is started for the updated address.
 func watchAgentPods(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, mapper *k8s.Mapper, agentPort string) {
-	// Track which pod IPs we've already connected to.
-	connected := make(map[string]bool)
+	// conns maps node name → current active connection.
+	conns := make(map[string]*agentConn)
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	// Run immediately on start.
-	discoverAndConnect(ctx, log, agg, mapper, agentPort, connected)
+	discoverAndConnect(ctx, log, agg, mapper, agentPort, conns)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			discoverAndConnect(ctx, log, agg, mapper, agentPort, connected)
+			discoverAndConnect(ctx, log, agg, mapper, agentPort, conns)
 		}
 	}
 }
 
-// discoverAndConnect finds agent pods and connects to new ones.
+// discoverAndConnect finds agent pods and connects to new or changed ones.
+// It cancels goroutines for nodes whose pod IP has changed.
 //
 // Priority order:
 //  1. NODE_IPS env var — explicit comma-separated list of IPs/hostnames.
 //  2. Kubernetes API — list running kgpudash-agent pods and use their pod IPs.
 //  3. Localhost fallback — connect to 127.0.0.1 when neither of the above
 //     yields any addresses (useful for local development).
-func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, mapper *k8s.Mapper, agentPort string, connected map[string]bool) {
+func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, mapper *k8s.Mapper, agentPort string, conns map[string]*agentConn) {
 	// 1. Explicit NODE_IPS override.
 	if nodeIPs := os.Getenv("NODE_IPS"); nodeIPs != "" {
 		for _, ip := range splitTrim(nodeIPs, ",") {
-			if ip == "" || connected[ip] {
+			if ip == "" {
 				continue
 			}
 			addr := fmt.Sprintf("%s:%s", ip, agentPort)
-			log.Info("connecting to agent (NODE_IPS)", zap.String("addr", addr))
-			agg.ConnectAgent(ctx, ip, addr)
-			connected[ip] = true
+			connectIfChanged(ctx, log, agg, ip, addr, conns)
 		}
 		return
 	}
@@ -146,27 +154,46 @@ func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Ag
 	}
 	if len(agentPods) > 0 {
 		for _, p := range agentPods {
-			if connected[p.PodIP] {
-				continue
-			}
 			addr := fmt.Sprintf("%s:%s", p.PodIP, agentPort)
-			log.Info("connecting to agent (k8s discovery)",
-				zap.String("node", p.NodeName),
-				zap.String("addr", addr))
-			agg.ConnectAgent(ctx, p.NodeName, addr)
-			connected[p.PodIP] = true
+			connectIfChanged(ctx, log, agg, p.NodeName, addr, conns)
 		}
 		return
 	}
 
 	// 3. Localhost fallback for local development.
 	const localHost = "127.0.0.1"
-	if !connected[localHost] {
-		addr := fmt.Sprintf("%s:%s", localHost, agentPort)
-		log.Info("no agents found, falling back to local agent", zap.String("addr", addr))
-		agg.ConnectAgent(ctx, localHost, addr)
-		connected[localHost] = true
+	addr := fmt.Sprintf("%s:%s", localHost, agentPort)
+	connectIfChanged(ctx, log, agg, localHost, addr, conns)
+}
+
+// connectIfChanged starts a new agent connection for nodeName/addr if:
+//   - there is no existing connection for that node, OR
+//   - the address has changed (pod was rescheduled to a new IP).
+//
+// When the address changes, the old goroutine is cancelled before the new one
+// is started, preventing duplicate streaming goroutines per node.
+func connectIfChanged(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, nodeName, addr string, conns map[string]*agentConn) {
+	existing, ok := conns[nodeName]
+	if ok && existing.addr == addr {
+		// Same address — already connected, nothing to do.
+		return
 	}
+	if ok {
+		// Address changed: cancel the old goroutine.
+		log.Info("agent IP changed, reconnecting",
+			zap.String("node", nodeName),
+			zap.String("old", existing.addr),
+			zap.String("new", addr))
+		existing.cancel()
+	}
+
+	nodeCtx, nodeCancel := context.WithCancel(ctx)
+	conns[nodeName] = &agentConn{addr: addr, cancel: nodeCancel}
+
+	log.Info("connecting to agent (k8s discovery)",
+		zap.String("node", nodeName),
+		zap.String("addr", addr))
+	agg.ConnectAgent(nodeCtx, nodeName, addr)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
