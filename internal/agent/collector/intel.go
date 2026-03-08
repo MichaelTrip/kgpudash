@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -20,6 +21,10 @@ type IntelCollector struct {
 	log       *zap.Logger
 	cards     []intelCard
 	useXPUSMI bool
+
+	// For energy_uj delta-based power calculation
+	lastEnergyUJ map[string]uint64
+	lastEnergyTs map[string]time.Time
 }
 
 type intelCard struct {
@@ -32,7 +37,11 @@ type intelCard struct {
 
 // NewIntelCollector creates a new Intel GPU collector.
 func NewIntelCollector(log *zap.Logger) *IntelCollector {
-	return &IntelCollector{log: log}
+	return &IntelCollector{
+		log:          log,
+		lastEnergyUJ: make(map[string]uint64),
+		lastEnergyTs: make(map[string]time.Time),
+	}
 }
 
 // Detect returns true if Intel GPUs are present.
@@ -131,12 +140,9 @@ func (c *IntelCollector) collectSysfs() ([]GPUInfo, error) {
 		}
 
 		// GPU utilization — try GT0 RC6 residency as a proxy for busy %
-		// For xe driver: /sys/class/drm/card*/device/tile0/gt0/freq0/cur_freq
-		// For i915: /sys/kernel/debug/dri/*/i915_frequency_info (requires root)
-		// Best-effort: read from fdinfo if available
 		info.UtilPercent = c.readUtilization(card)
 
-		// VRAM (Local Memory / LMEM) — xe driver exposes this
+		// VRAM (Local Memory / LMEM) — xe driver exposes this; i915 via debugfs
 		info.VRAMUsedMB, info.VRAMTotalMB = c.readVRAM(card)
 
 		// Temperature
@@ -206,12 +212,15 @@ func (c *IntelCollector) readUtilization(card intelCard) float64 {
 }
 
 // readVRAM reads local memory (LMEM) stats for discrete Intel GPUs.
+// Tries multiple paths in order of preference:
+//  1. xe driver sysfs: tile0/memory/local/{total,used}
+//  2. i915 debugfs:    /sys/kernel/debug/dri/N/i915_gem_objects (requires root)
+//  3. i915 sysfs gem:  card.path/drm/card*/mem_info_vram_{total,used}
+//  4. hwmon lmem:      card.path/hwmon/hwmon*/in0_{input,max} (some Arc cards)
 func (c *IntelCollector) readVRAM(card intelCard) (used, total uint64) {
-	// xe driver exposes: /sys/class/drm/card*/device/tile0/memory/local/total
-	//                    /sys/class/drm/card*/device/tile0/memory/local/used
+	// 1. xe driver: /sys/class/drm/card*/device/tile0/memory/local/{total,used}
 	totalPath := filepath.Join(card.path, "tile0", "memory", "local", "total")
 	usedPath := filepath.Join(card.path, "tile0", "memory", "local", "used")
-
 	if data, err := os.ReadFile(totalPath); err == nil {
 		if v, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil {
 			total = v / (1024 * 1024)
@@ -222,6 +231,84 @@ func (c *IntelCollector) readVRAM(card intelCard) (used, total uint64) {
 			used = v / (1024 * 1024)
 		}
 	}
+	if total > 0 {
+		return
+	}
+
+	// 2. i915 sysfs mem_info (kernel 6.2+ exposes under drm client stats)
+	//    /sys/class/drm/card*/device/drm/card*/clients/*/mem_info_vram_used
+	//    Aggregate across all clients for total used.
+	clientsGlob := filepath.Join(card.cardPath, "clients", "*", "mem_info_vram_used")
+	if clients, _ := filepath.Glob(clientsGlob); len(clients) > 0 {
+		var sumUsed uint64
+		for _, f := range clients {
+			if data, err := os.ReadFile(f); err == nil {
+				if v, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil {
+					sumUsed += v
+				}
+			}
+		}
+		used = sumUsed / (1024 * 1024)
+		// Try to get total from the first client's vram_total sibling
+		if len(clients) > 0 {
+			totalFile := strings.Replace(clients[0], "mem_info_vram_used", "mem_info_vram_total", 1)
+			if data, err := os.ReadFile(totalFile); err == nil {
+				if v, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil {
+					total = v / (1024 * 1024)
+				}
+			}
+		}
+		if total > 0 {
+			return
+		}
+	}
+
+	// 3. i915 debugfs (requires root / CAP_SYS_ADMIN)
+	//    /sys/kernel/debug/dri/<N>/i915_gem_objects
+	//    Look for "Total" line: "Total 1234 objects, 567890 bytes"
+	cardNum := filepath.Base(card.cardPath) // e.g. "card0"
+	cardNum = strings.TrimPrefix(cardNum, "card")
+	debugPath := fmt.Sprintf("/sys/kernel/debug/dri/%s/i915_gem_objects", cardNum)
+	if data, err := os.ReadFile(debugPath); err == nil {
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "Total") {
+				// "Total N objects, M bytes, P purgeable"
+				fields := strings.Fields(line)
+				for i, f := range fields {
+					if f == "bytes," || f == "bytes" {
+						if i > 0 {
+							if v, err := strconv.ParseUint(fields[i-1], 10, 64); err == nil {
+								used = v / (1024 * 1024)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Try reading VRAM size from PCI resource (gives total VRAM for discrete GPUs)
+	//    /sys/class/drm/card*/device/resource (BAR2 is typically VRAM on discrete)
+	if total == 0 {
+		resourcePath := filepath.Join(card.path, "resource")
+		if data, err := os.ReadFile(resourcePath); err == nil {
+			lines := strings.Split(string(data), "\n")
+			// BAR2 is line index 4 (0-indexed), format: "start end flags"
+			if len(lines) > 4 {
+				fields := strings.Fields(lines[4])
+				if len(fields) >= 2 {
+					start, err1 := strconv.ParseUint(strings.TrimPrefix(fields[0], "0x"), 16, 64)
+					end, err2 := strconv.ParseUint(strings.TrimPrefix(fields[1], "0x"), 16, 64)
+					if err1 == nil && err2 == nil && end > start {
+						total = (end - start + 1) / (1024 * 1024)
+					}
+				}
+			}
+		}
+	}
+
 	return
 }
 
@@ -248,12 +335,18 @@ func (c *IntelCollector) readHwmonTemp(card intelCard) float64 {
 }
 
 // readHwmonPower reads power draw from hwmon sysfs.
+// Tries power1_input (instantaneous µW), then falls back to
+// computing watts from the delta of energy_uj (µJ counter).
 func (c *IntelCollector) readHwmonPower(card intelCard) float64 {
-	patterns := []string{
+	// Patterns for instantaneous power (µW)
+	powerPatterns := []string{
 		filepath.Join(card.path, "hwmon", "hwmon*", "power1_input"),
 		filepath.Join(card.cardPath, "device", "hwmon", "hwmon*", "power1_input"),
+		// Some Arc/Xe cards expose power under a different index
+		filepath.Join(card.path, "hwmon", "hwmon*", "power2_input"),
+		filepath.Join(card.cardPath, "device", "hwmon", "hwmon*", "power2_input"),
 	}
-	for _, pat := range patterns {
+	for _, pat := range powerPatterns {
 		hwmons, _ := filepath.Glob(pat)
 		for _, f := range hwmons {
 			if data, err := os.ReadFile(f); err == nil {
@@ -263,6 +356,48 @@ func (c *IntelCollector) readHwmonPower(card intelCard) float64 {
 			}
 		}
 	}
+
+	// Fallback: energy_uj counter (µJ) — compute delta watts
+	// energy_uj is a monotonically increasing counter; watts = ΔµJ / Δt_µs
+	energyPatterns := []string{
+		filepath.Join(card.path, "hwmon", "hwmon*", "energy1_input"),
+		filepath.Join(card.cardPath, "device", "hwmon", "hwmon*", "energy1_input"),
+		// RAPL-style via powercap (integrated GPUs share package energy)
+		"/sys/class/powercap/intel-rapl:*/energy_uj",
+		"/sys/class/powercap/intel-rapl:*:*/energy_uj",
+	}
+	now := time.Now()
+	key := fmt.Sprintf("card%d", card.index)
+
+	for _, pat := range energyPatterns {
+		files, _ := filepath.Glob(pat)
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			uj, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+			if err != nil {
+				continue
+			}
+
+			fileKey := key + ":" + f
+			if prev, ok := c.lastEnergyUJ[fileKey]; ok {
+				dt := now.Sub(c.lastEnergyTs[fileKey]).Seconds()
+				if dt > 0 && uj >= prev {
+					watts := float64(uj-prev) / 1_000_000.0 / dt
+					c.lastEnergyUJ[fileKey] = uj
+					c.lastEnergyTs[fileKey] = now
+					if watts > 0 && watts < 1000 { // sanity check
+						return watts
+					}
+				}
+			}
+			c.lastEnergyUJ[fileKey] = uj
+			c.lastEnergyTs[fileKey] = now
+		}
+	}
+
 	return 0
 }
 
