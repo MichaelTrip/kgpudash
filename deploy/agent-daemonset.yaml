@@ -39,7 +39,7 @@ spec:
 
       containers:
         - name: agent
-          image: ghcr.io/michaeltrip/kgpudash-agent:latest
+          image: ghcr.io/michaeltrip/kgpudash-agent:v1.6.0
           imagePullPolicy: Always
 
           ports:
