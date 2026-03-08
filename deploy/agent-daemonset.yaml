@@ -1,0 +1,92 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kgpudash-agent
+  namespace: kgpudash
+  labels:
+    app: kgpudash-agent
+spec:
+  selector:
+    matchLabels:
+      app: kgpudash-agent
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: kgpudash-agent
+    spec:
+      # Run on GPU nodes only — adjust the label selector to match your cluster.
+      # Remove nodeSelector to run on all nodes.
+      nodeSelector:
+        gpu: "true"
+
+      tolerations:
+        # Tolerate GPU taints commonly applied by device plugins.
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: amd.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: gpu.intel.com/i915
+          operator: Exists
+          effect: NoSchedule
+
+      hostPID: false
+      hostNetwork: false
+
+      containers:
+        - name: agent
+          image: ghcr.io/michaeltrip/kgpudash-agent:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+
+          env:
+            # Inject the node name via the Downward API.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: AGENT_GRPC_PORT
+              value: "9090"
+            - name: AGENT_COLLECT_INTERVAL
+              value: "5s"
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          securityContext:
+            # Required to access NVML and GPU sysfs.
+            privileged: true
+
+          volumeMounts:
+            - name: dev
+              mountPath: /dev
+            - name: sys
+              mountPath: /sys
+              readOnly: true
+
+          livenessProbe:
+            grpc:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+      volumes:
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: /sys

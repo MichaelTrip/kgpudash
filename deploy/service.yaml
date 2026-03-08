@@ -1,0 +1,69 @@
+---
+# Service for the kgpudash-server web dashboard.
+# Change type to LoadBalancer or add an Ingress for external access.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kgpudash-server
+  namespace: kgpudash
+  labels:
+    app: kgpudash-server
+spec:
+  selector:
+    app: kgpudash-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+
+---
+# Headless service for agent-to-server gRPC discovery.
+# The server uses this to find agent pod IPs.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kgpudash-agent
+  namespace: kgpudash
+  labels:
+    app: kgpudash-agent
+spec:
+  selector:
+    app: kgpudash-agent
+  clusterIP: None
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+
+---
+# Optional: Ingress for external HTTPS access.
+# Uncomment and configure for your ingress controller.
+#
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: kgpudash
+#   namespace: kgpudash
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+#     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+# spec:
+#   ingressClassName: nginx
+#   rules:
+#     - host: kgpudash.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: kgpudash-server
+#                 port:
+#                   number: 80
+#   tls:
+#     - hosts:
+#         - kgpudash.example.com
+#       secretName: kgpudash-tls

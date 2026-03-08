@@ -1,0 +1,34 @@
+# ── Build stage ────────────────────────────────────────────────────────────
+FROM golang:1.22-bookworm AS builder
+
+WORKDIR /src
+
+# Cache dependencies first.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build.
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build \
+      -ldflags="-s -w" \
+      -o /out/kgpudash-agent \
+      ./cmd/agent
+
+# ── Runtime stage ──────────────────────────────────────────────────────────
+# Use the NVIDIA CUDA base image so NVML is available at runtime.
+# For AMD/Intel-only nodes, a plain debian:bookworm-slim is sufficient.
+FROM nvidia/cuda:12.4.1-base-ubuntu22.04
+
+# Install runtime dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/kgpudash-agent /usr/local/bin/kgpudash-agent
+
+# The agent runs as root to access GPU device files and sysfs.
+USER root
+
+EXPOSE 9090
+
+ENTRYPOINT ["/usr/local/bin/kgpudash-agent"]

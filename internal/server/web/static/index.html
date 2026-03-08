@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kgpudash — Kubernetes GPU Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">⬡ kgpudash</span>
+      <span class="cluster-label" id="cluster-label">connecting…</span>
+    </div>
+    <div class="header-right">
+      <span class="badge" id="gpu-count">0 GPUs</span>
+      <span class="ws-status" id="ws-status" title="WebSocket status">●</span>
+    </div>
+  </header>
+
+  <!-- ── Toolbar ────────────────────────────────────────────────────── -->
+  <div class="toolbar">
+    <label>
+      Vendor
+      <select id="filter-vendor">
+        <option value="">All Vendors</option>
+        <option value="nvidia">NVIDIA</option>
+        <option value="amd">AMD</option>
+        <option value="intel">Intel</option>
+      </select>
+    </label>
+    <label>
+      Node
+      <select id="filter-node">
+        <option value="">All Nodes</option>
+      </select>
+    </label>
+    <label>
+      <input type="text" id="filter-pod" placeholder="Search pod…" />
+    </label>
+  </div>
+
+  <!-- ── Main grid ──────────────────────────────────────────────────── -->
+  <main id="main-grid" class="main-grid">
+    <div class="empty-state" id="empty-state">
+      <p>Waiting for GPU data…</p>
+    </div>
+  </main>
+
+  <!-- ── History panel (hidden by default) ─────────────────────────── -->
+  <div class="history-panel" id="history-panel" hidden>
+    <div class="history-header">
+      <span id="history-title">GPU History</span>
+      <div class="history-range">
+        <button class="range-btn active" data-range="3600000">1h</button>
+        <button class="range-btn" data-range="21600000">6h</button>
+        <button class="range-btn" data-range="86400000">24h</button>
+        <button class="range-btn" data-range="604800000">7d</button>
+      </div>
+      <button class="close-btn" id="history-close">✕</button>
+    </div>
+    <div class="history-charts">
+      <div class="chart-wrap">
+        <label>Utilization %</label>
+        <canvas id="chart-util"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <label>VRAM Used (MB)</label>
+        <canvas id="chart-vram"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <label>Temperature (°C)</label>
+        <canvas id="chart-temp"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <label>Power (W)</label>
+        <canvas id="chart-power"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

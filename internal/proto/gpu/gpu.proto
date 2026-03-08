@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package gpu;
+
+option go_package = "github.com/yourorg/kgpudash/internal/proto/gpu";
+
+// AgentService is implemented by the kgpudash-agent.
+// The server connects to each agent and calls StreamMetrics to receive
+// a continuous stream of GPU metric snapshots.
+service AgentService {
+  rpc StreamMetrics(StreamRequest) returns (stream MetricSnapshot);
+}
+
+// StreamRequest is sent by the server to initiate the metric stream.
+message StreamRequest {
+  // How often the agent should collect and send metrics, in milliseconds.
+  int64 interval_ms = 1;
+}
+
+// MetricSnapshot is a point-in-time snapshot of all GPUs on a node.
+message MetricSnapshot {
+  string node_name        = 1;
+  int64  timestamp_ms     = 2; // Unix epoch milliseconds
+  repeated GPUMetric gpus = 3;
+}
+
+// GPUMetric holds metrics for a single GPU device.
+message GPUMetric {
+  int32  index          = 1;
+  string uuid           = 2;
+  string name           = 3;
+  string vendor         = 4; // "nvidia" | "amd" | "intel"
+  double util_percent   = 5;
+  uint64 vram_used_mb   = 6;
+  uint64 vram_total_mb  = 7;
+  double temp_celsius   = 8;
+  double power_watts    = 9;
+}

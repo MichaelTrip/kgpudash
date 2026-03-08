@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kgpudash-server
+  namespace: kgpudash
+  labels:
+    app: kgpudash-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kgpudash-server
+  template:
+    metadata:
+      labels:
+        app: kgpudash-server
+    spec:
+      serviceAccountName: kgpudash-server
+
+      containers:
+        - name: server
+          image: ghcr.io/michaeltrip/kgpudash-server:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          env:
+            - name: SERVER_HTTP_PORT
+              value: "8080"
+            - name: AGENT_GRPC_PORT
+              value: "9090"
+            - name: COLLECT_INTERVAL
+              value: "5s"
+
+            # ── Optional: enable TimescaleDB storage ──────────────────
+            # Uncomment and configure to enable historical metrics.
+            #
+            # - name: STORAGE_ENABLED
+            #   value: "true"
+            # - name: STORAGE_DSN
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: kgpudash-db
+            #       key: dsn
+            # - name: STORAGE_RETENTION
+            #   value: "30d"
+
+            # ── Agent discovery ───────────────────────────────────────
+            # Comma-separated list of node IPs running the agent.
+            # In production, replace with your node IPs or use a
+            # headless Service pointing to agent pods.
+            # - name: NODE_IPS
+            #   value: "10.0.0.1,10.0.0.2,10.0.0.3"
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10

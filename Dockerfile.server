@@ -1,0 +1,24 @@
+# ── Build stage ────────────────────────────────────────────────────────────
+FROM golang:1.22-bookworm AS builder
+
+WORKDIR /src
+
+# Cache dependencies first.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build.
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags="-s -w" \
+      -o /out/kgpudash-server \
+      ./cmd/server
+
+# ── Runtime stage ──────────────────────────────────────────────────────────
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /out/kgpudash-server /kgpudash-server
+
+EXPOSE 8080
+
+ENTRYPOINT ["/kgpudash-server"]

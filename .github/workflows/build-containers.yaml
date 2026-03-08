@@ -1,0 +1,335 @@
+name: 🚀 Build & Release Containers
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  push:
+    branches:
+      - "main"
+      - "feature/**"
+      - "fix/**"
+      - "chore/**"
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+  AGENT_IMAGE_NAME: michaeltrip/kgpudash-agent
+  SERVER_IMAGE_NAME: michaeltrip/kgpudash-server
+
+jobs:
+  # ── Determine version tag ──────────────────────────────────────────────
+  determine-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      docker-tag: ${{ steps.tag.outputs.docker-tag }}
+      git-tag:    ${{ steps.tag.outputs.git-tag }}
+      is-main:    ${{ steps.tag.outputs.is-main }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag
+        id: tag
+        run: |
+          set -e
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            IS_MAIN="true"
+
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            echo "Latest git tag: $LATEST_TAG"
+
+            VERSION=${LATEST_TAG#v}
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            MAJOR=${MAJOR:-0}
+            MINOR=${MINOR:-0}
+            PATCH=${PATCH:-0}
+
+            if [ "$LATEST_TAG" != "v0.0.0" ]; then
+              COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s")
+            else
+              COMMITS=$(git log --pretty=format:"%s")
+            fi
+
+            if echo "$COMMITS" | grep -qiE "BREAKING CHANGE|major:"; then
+              MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0; BUMP_TYPE="major"
+            elif echo "$COMMITS" | grep -qiE "^feat|^feature|minor:"; then
+              MINOR=$((MINOR + 1)); PATCH=0; BUMP_TYPE="minor"
+            else
+              PATCH=$((PATCH + 1)); BUMP_TYPE="patch"
+            fi
+
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+            echo "Bump type: $BUMP_TYPE"
+            echo "New tag: $NEW_TAG"
+            DOCKER_TAG="$NEW_TAG"
+            GIT_TAG="$NEW_TAG"
+          else
+            IS_MAIN="false"
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            DOCKER_TAG="${BRANCH_NAME}-${SHORT_SHA}"
+            GIT_TAG=""
+          fi
+
+          echo "Docker tag: $DOCKER_TAG"
+          echo "Is main branch: $IS_MAIN"
+          echo "docker-tag=$DOCKER_TAG" >> $GITHUB_OUTPUT
+          echo "git-tag=$GIT_TAG"       >> $GITHUB_OUTPUT
+          echo "is-main=$IS_MAIN"       >> $GITHUB_OUTPUT
+
+  # ── Build kgpudash-agent ───────────────────────────────────────────────
+  build-agent:
+    runs-on: ubuntu-latest
+    needs: determine-tag
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags:   ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for agent image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ needs.determine-tag.outputs.is-main == 'true' }}
+            type=raw,value=${{ needs.determine-tag.outputs.docker-tag }}
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=kgpudash Agent
+            org.opencontainers.image.description=GPU metric collector DaemonSet agent for kgpudash
+            org.opencontainers.image.vendor=MichaelTrip
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push agent image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.agent
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+  # ── Build kgpudash-server ──────────────────────────────────────────────
+  build-server:
+    runs-on: ubuntu-latest
+    needs: determine-tag
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags:   ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for server image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.SERVER_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ needs.determine-tag.outputs.is-main == 'true' }}
+            type=raw,value=${{ needs.determine-tag.outputs.docker-tag }}
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=kgpudash Server
+            org.opencontainers.image.description=GPU dashboard aggregator and web server for kgpudash
+            org.opencontainers.image.vendor=MichaelTrip
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push server image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.server
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+  # ── Create GitHub Release + Git tag (main only) ────────────────────────
+  release:
+    runs-on: ubuntu-latest
+    needs: [determine-tag, build-agent, build-server]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Git tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.determine-tag.outputs.git-tag }}" \
+            -m "Release ${{ needs.determine-tag.outputs.git-tag }}"
+          git push origin "${{ needs.determine-tag.outputs.git-tag }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.determine-tag.outputs.git-tag }}
+          name: "kgpudash ${{ needs.determine-tag.outputs.git-tag }}"
+          generate_release_notes: true
+          body: |
+            ## 🚀 kgpudash ${{ needs.determine-tag.outputs.git-tag }}
+
+            ### Container Images
+
+            **Agent (DaemonSet):**
+            ```bash
+            docker pull ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+            ```
+
+            **Server (Dashboard):**
+            ```bash
+            docker pull ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+            ```
+
+            ### Deploy to Kubernetes
+            ```bash
+            kubectl apply -f https://raw.githubusercontent.com/MichaelTrip/kgpudash/${{ needs.determine-tag.outputs.git-tag }}/deploy/rbac.yaml
+            kubectl apply -f https://raw.githubusercontent.com/MichaelTrip/kgpudash/${{ needs.determine-tag.outputs.git-tag }}/deploy/agent-daemonset.yaml
+            kubectl apply -f https://raw.githubusercontent.com/MichaelTrip/kgpudash/${{ needs.determine-tag.outputs.git-tag }}/deploy/server-deployment.yaml
+            kubectl apply -f https://raw.githubusercontent.com/MichaelTrip/kgpudash/${{ needs.determine-tag.outputs.git-tag }}/deploy/service.yaml
+            ```
+
+  # ── Update deploy manifests with new image tags ────────────────────────
+  update-manifests:
+    runs-on: ubuntu-latest
+    needs: [determine-tag, build-agent, build-server]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update deployment manifests with new image tags
+        run: |
+          echo "🔄 Updating deployment manifests..."
+
+          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-agent:.*|image: ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
+            deploy/agent-daemonset.yaml
+
+          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-server:.*|image: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
+            deploy/server-deployment.yaml
+
+          if git diff --quiet; then
+            echo "✅ Manifests already up to date"
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/agent-daemonset.yaml deploy/server-deployment.yaml
+          git commit -m "chore: update manifests to ${{ needs.determine-tag.outputs.docker-tag }}
+
+          - Agent:  ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+          - Server: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+
+          Auto-generated from workflow run: ${{ github.run_id }}"
+          git push origin main
+
+  # ── Build summary ──────────────────────────────────────────────────────
+  build-summary:
+    runs-on: ubuntu-latest
+    needs: [determine-tag, build-agent, build-server]
+    if: always() && (needs.build-agent.result == 'success' || needs.build-server.result == 'success')
+    permissions:
+      contents: read
+
+    steps:
+      - name: Generate Build Summary
+        run: |
+          echo "# 🚀 kgpudash Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Images Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.build-agent.result }}" == "success" ]; then
+            echo "### 🤖 Agent (DaemonSet)" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.build-agent.outputs.image-tags }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Digest:** \`${{ needs.build-agent.outputs.image-digest }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.build-server.result }}" == "success" ]; then
+            echo "### 🌐 Server (Dashboard)" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.build-server.outputs.image-tags }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Digest:** \`${{ needs.build-server.outputs.image-digest }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "## 🏷️ Tag Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Tag:** \`${{ needs.determine-tag.outputs.docker-tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Git Tag:** \`${{ needs.determine-tag.outputs.git-tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Is Main Branch:** \`${{ needs.determine-tag.outputs.is-main }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event Type:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "## 🚢 Pull Commands" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Agent:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Server:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
