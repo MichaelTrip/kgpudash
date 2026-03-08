@@ -76,7 +76,7 @@ func main() {
 	// The aggregator watches for agent pods via the Kubernetes API.
 	// We start a goroutine that periodically discovers agent pod IPs
 	// and connects to any new ones.
-	go watchAgentPods(ctx, log, agg, agentPort)
+	go watchAgentPods(ctx, log, agg, mapper, agentPort)
 
 	// ── Web server ───────────────────────────────────────────────────
 	webSrv := web.New(log, agg, fmt.Sprintf(":%s", httpPort))
@@ -97,54 +97,75 @@ func main() {
 
 // watchAgentPods periodically discovers kgpudash-agent pods via the Kubernetes
 // API and connects the aggregator to any new agents.
-func watchAgentPods(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, agentPort string) {
-	// Track which nodes we've already connected to.
+func watchAgentPods(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, mapper *k8s.Mapper, agentPort string) {
+	// Track which pod IPs we've already connected to.
 	connected := make(map[string]bool)
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	// Run immediately on start.
-	discoverAndConnect(ctx, log, agg, agentPort, connected)
+	discoverAndConnect(ctx, log, agg, mapper, agentPort, connected)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			discoverAndConnect(ctx, log, agg, agentPort, connected)
+			discoverAndConnect(ctx, log, agg, mapper, agentPort, connected)
 		}
 	}
 }
 
 // discoverAndConnect finds agent pods and connects to new ones.
-// In a real deployment the agent pod IPs come from the Kubernetes API.
-// NODE_IPS is a comma-separated list of node IPs or hostnames used as a
-// simple bootstrap mechanism. When NODE_IPS is not set the server falls
-// back to connecting to a local agent on 127.0.0.1 so that running both
-// binaries on the same machine works without any configuration.
-func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, agentPort string, connected map[string]bool) {
-	nodeIPs := os.Getenv("NODE_IPS")
-	if nodeIPs == "" {
-		// Zero-config fallback: connect to a local agent.
-		const localHost = "127.0.0.1"
-		if !connected[localHost] {
-			addr := fmt.Sprintf("%s:%s", localHost, agentPort)
-			log.Info("NODE_IPS not set, connecting to local agent", zap.String("addr", addr))
-			agg.ConnectAgent(ctx, localHost, addr)
-			connected[localHost] = true
+//
+// Priority order:
+//  1. NODE_IPS env var — explicit comma-separated list of IPs/hostnames.
+//  2. Kubernetes API — list running kgpudash-agent pods and use their pod IPs.
+//  3. Localhost fallback — connect to 127.0.0.1 when neither of the above
+//     yields any addresses (useful for local development).
+func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, mapper *k8s.Mapper, agentPort string, connected map[string]bool) {
+	// 1. Explicit NODE_IPS override.
+	if nodeIPs := os.Getenv("NODE_IPS"); nodeIPs != "" {
+		for _, ip := range splitTrim(nodeIPs, ",") {
+			if ip == "" || connected[ip] {
+				continue
+			}
+			addr := fmt.Sprintf("%s:%s", ip, agentPort)
+			log.Info("connecting to agent (NODE_IPS)", zap.String("addr", addr))
+			agg.ConnectAgent(ctx, ip, addr)
+			connected[ip] = true
 		}
 		return
 	}
 
-	for _, ip := range splitTrim(nodeIPs, ",") {
-		if ip == "" || connected[ip] {
-			continue
+	// 2. Auto-discover via Kubernetes API.
+	agentPods, err := mapper.ListAgentPodIPs(ctx)
+	if err != nil {
+		log.Warn("failed to list agent pods from k8s", zap.Error(err))
+	}
+	if len(agentPods) > 0 {
+		for _, p := range agentPods {
+			if connected[p.PodIP] {
+				continue
+			}
+			addr := fmt.Sprintf("%s:%s", p.PodIP, agentPort)
+			log.Info("connecting to agent (k8s discovery)",
+				zap.String("node", p.NodeName),
+				zap.String("addr", addr))
+			agg.ConnectAgent(ctx, p.NodeName, addr)
+			connected[p.PodIP] = true
 		}
-		addr := fmt.Sprintf("%s:%s", ip, agentPort)
-		log.Info("connecting to agent", zap.String("addr", addr))
-		agg.ConnectAgent(ctx, ip, addr)
-		connected[ip] = true
+		return
+	}
+
+	// 3. Localhost fallback for local development.
+	const localHost = "127.0.0.1"
+	if !connected[localHost] {
+		addr := fmt.Sprintf("%s:%s", localHost, agentPort)
+		log.Info("no agents found, falling back to local agent", zap.String("addr", addr))
+		agg.ConnectAgent(ctx, localHost, addr)
+		connected[localHost] = true
 	}
 }
 

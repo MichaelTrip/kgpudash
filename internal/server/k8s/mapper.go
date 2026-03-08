@@ -157,6 +157,39 @@ func (m *Mapper) PodsOnNode(nodeName string) []PodGPUInfo {
 	return m.byNode[nodeName]
 }
 
+// AgentPodIP holds the pod IP and node name of a discovered agent pod.
+type AgentPodIP struct {
+	PodIP    string
+	NodeName string
+}
+
+// ListAgentPodIPs returns the pod IPs of all running kgpudash-agent pods.
+// Returns nil (no error) when the Kubernetes client is not configured.
+func (m *Mapper) ListAgentPodIPs(ctx context.Context) ([]AgentPodIP, error) {
+	if m.client == nil {
+		return nil, nil
+	}
+	pods, err := m.client.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app=kgpudash-agent",
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out []AgentPodIP
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.Status.PodIP == "" {
+			continue
+		}
+		out = append(out, AgentPodIP{
+			PodIP:    p.Status.PodIP,
+			NodeName: p.Spec.NodeName,
+		})
+	}
+	return out, nil
+}
+
 // vendorFromResource maps a Kubernetes resource name to a vendor string.
 func vendorFromResource(resName string) string {
 	switch {
