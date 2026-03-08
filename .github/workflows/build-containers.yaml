@@ -17,7 +17,7 @@ env:
   SERVER_IMAGE_NAME: michaeltrip/kgpudash-server
 
 jobs:
-  # ── Determine version tag ──────────────────────────────────────────────
+  # ── 1. Determine version tag ───────────────────────────────────────────
   determine-tag:
     runs-on: ubuntu-latest
     outputs:
@@ -80,7 +80,7 @@ jobs:
           echo "git-tag=$GIT_TAG"       >> $GITHUB_OUTPUT
           echo "is-main=$IS_MAIN"       >> $GITHUB_OUTPUT
 
-  # ── Build kgpudash-agent ───────────────────────────────────────────────
+  # ── 2. Build kgpudash-agent ────────────────────────────────────────────
   build-agent:
     runs-on: ubuntu-latest
     needs: determine-tag
@@ -134,7 +134,7 @@ jobs:
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
 
-  # ── Build kgpudash-server ──────────────────────────────────────────────
+  # ── 3. Build kgpudash-server ───────────────────────────────────────────
   build-server:
     runs-on: ubuntu-latest
     needs: determine-tag
@@ -188,10 +188,60 @@ jobs:
           cache-from: type=gha,scope=server
           cache-to: type=gha,mode=max,scope=server
 
-  # ── Create GitHub Release + Git tag (main only) ────────────────────────
-  release:
+  # ── 4. Update deploy manifests with new image tags (main only) ─────────
+  #       Must run BEFORE release so the tag points to the manifest commit.
+  update-manifests:
     runs-on: ubuntu-latest
     needs: [determine-tag, build-agent, build-server]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    outputs:
+      # Pass the SHA of the manifest commit so release can tag it.
+      manifest-sha: ${{ steps.commit.outputs.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fetch latest so we don't race with other commits.
+          ref: main
+
+      - name: Update deployment manifests with new image tags
+        id: commit
+        run: |
+          echo "🔄 Updating deployment manifests to ${{ needs.determine-tag.outputs.docker-tag }}..."
+
+          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-agent:.*|image: ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
+            deploy/agent-daemonset.yaml
+
+          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-server:.*|image: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
+            deploy/server-deployment.yaml
+
+          if git diff --quiet; then
+            echo "✅ Manifests already up to date"
+            echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/agent-daemonset.yaml deploy/server-deployment.yaml
+          git commit -m "chore: update manifests to ${{ needs.determine-tag.outputs.docker-tag }}
+
+          - Agent:  ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+          - Server: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
+
+          Auto-generated from workflow run: ${{ github.run_id }}"
+
+          git push origin main
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+  # ── 5. Create Git tag + GitHub Release (main only, after manifests) ────
+  release:
+    runs-on: ubuntu-latest
+    needs: [determine-tag, build-agent, build-server, update-manifests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
@@ -201,8 +251,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Check out the manifest-update commit so the tag points to it.
+          ref: main
 
-      - name: Create Git tag
+      - name: Pull latest (includes manifest commit)
+        run: git pull origin main
+
+      - name: Create Git tag on manifest commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -239,47 +294,7 @@ jobs:
             kubectl apply -f https://raw.githubusercontent.com/MichaelTrip/kgpudash/${{ needs.determine-tag.outputs.git-tag }}/deploy/service.yaml
             ```
 
-  # ── Update deploy manifests with new image tags ────────────────────────
-  update-manifests:
-    runs-on: ubuntu-latest
-    needs: [determine-tag, build-agent, build-server]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update deployment manifests with new image tags
-        run: |
-          echo "🔄 Updating deployment manifests..."
-
-          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-agent:.*|image: ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
-            deploy/agent-daemonset.yaml
-
-          sed -i "s|image: ghcr\.io/michaeltrip/kgpudash-server:.*|image: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}|g" \
-            deploy/server-deployment.yaml
-
-          if git diff --quiet; then
-            echo "✅ Manifests already up to date"
-            exit 0
-          fi
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add deploy/agent-daemonset.yaml deploy/server-deployment.yaml
-          git commit -m "chore: update manifests to ${{ needs.determine-tag.outputs.docker-tag }}
-
-          - Agent:  ghcr.io/${{ env.AGENT_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
-          - Server: ghcr.io/${{ env.SERVER_IMAGE_NAME }}:${{ needs.determine-tag.outputs.docker-tag }}
-
-          Auto-generated from workflow run: ${{ github.run_id }}"
-          git push origin main
-
-  # ── Build summary ──────────────────────────────────────────────────────
+  # ── 6. Build summary ───────────────────────────────────────────────────
   build-summary:
     runs-on: ubuntu-latest
     needs: [determine-tag, build-agent, build-server]
