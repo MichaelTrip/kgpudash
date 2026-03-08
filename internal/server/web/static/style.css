@@ -1,95 +1,94 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   kgpudash — custom styles layered on top of Bootstrap 5
+   kgpudash — flat business theme, Bootstrap 5 base
    Supports [data-bs-theme="dark"] and [data-bs-theme="light"]
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Design tokens ─────────────────────────────────────────────────────── */
 :root {
-  /* Vendor accent colours */
+  /* Vendor accent colours — solid, no glow */
   --kgpu-nvidia:  #76b900;
   --kgpu-amd:     #ed1c24;
   --kgpu-intel:   #0071c5;
 
-  /* Metric accent colours */
-  --kgpu-util:    #6366f1;
-  --kgpu-vram:    #06b6d4;
-  --kgpu-temp:    #f59e0b;
-  --kgpu-power:   #ef4444;
+  /* Metric accent colours — solid */
+  --kgpu-util:    #3b5bdb;
+  --kgpu-vram:    #0c8599;
+  --kgpu-temp:    #e67700;
+  --kgpu-power:   #c92a2a;
 
-  /* Shared geometry */
-  --kgpu-radius:     0.75rem;
-  --kgpu-radius-sm:  0.5rem;
-  --kgpu-card-w:     240px;
-  --kgpu-bar-h:      6px;
-  --kgpu-history-h:  min(360px, 44vh);
+  /* Geometry — tighter */
+  --kgpu-radius:     4px;
+  --kgpu-radius-sm:  3px;
+  --kgpu-card-w:     210px;
+  --kgpu-bar-h:      4px;
+  --kgpu-history-h:  min(320px, 40vh);
 }
 
 /* ── Dark-theme surface tokens ─────────────────────────────────────────── */
 [data-bs-theme="dark"] {
-  --kgpu-navbar-bg:    #0f1117;
-  --kgpu-filterbar-bg: #13161f;
-  --kgpu-main-bg:      #0d0f1a;
-  --kgpu-card-bg:      #13161f;
-  --kgpu-card-border:  #252a40;
-  --kgpu-chart-bg:     #13161f;
-  --kgpu-history-bg:   #0f1117;
-  --kgpu-bar-track:    #1e2235;
-  --kgpu-muted:        #7986cb;
-  --kgpu-text:         #e8eaf6;
-  --kgpu-select-bg:    #1c2040;
+  --kgpu-navbar-bg:    #1a1a1a;
+  --kgpu-filterbar-bg: #1f1f1f;
+  --kgpu-main-bg:      #141414;
+  --kgpu-card-bg:      #1f1f1f;
+  --kgpu-card-border:  #2e2e2e;
+  --kgpu-chart-bg:     #1f1f1f;
+  --kgpu-history-bg:   #1a1a1a;
+  --kgpu-bar-track:    #2e2e2e;
+  --kgpu-muted:        #888;
+  --kgpu-text:         #e0e0e0;
+  --kgpu-select-bg:    #252525;
+  --kgpu-active:       #3b5bdb;
+  --kgpu-active-text:  #fff;
 }
 
 /* ── Light-theme surface tokens ────────────────────────────────────────── */
 [data-bs-theme="light"] {
   --kgpu-navbar-bg:    #ffffff;
-  --kgpu-filterbar-bg: #f8f9fa;
-  --kgpu-main-bg:      #f1f3f8;
+  --kgpu-filterbar-bg: #f5f5f5;
+  --kgpu-main-bg:      #efefef;
   --kgpu-card-bg:      #ffffff;
-  --kgpu-card-border:  #dee2e6;
+  --kgpu-card-border:  #d0d0d0;
   --kgpu-chart-bg:     #ffffff;
   --kgpu-history-bg:   #ffffff;
-  --kgpu-bar-track:    #e9ecef;
-  --kgpu-muted:        #6c757d;
-  --kgpu-text:         #212529;
+  --kgpu-bar-track:    #e0e0e0;
+  --kgpu-muted:        #666;
+  --kgpu-text:         #1a1a1a;
   --kgpu-select-bg:    #ffffff;
+  --kgpu-active:       #3b5bdb;
+  --kgpu-active-text:  #fff;
 }
 
 /* ── Base ──────────────────────────────────────────────────────────────── */
 html, body {
   height: 100%;
   background: var(--kgpu-main-bg);
-  transition: background 0.25s ease, color 0.25s ease;
 }
 
 body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  /* leave room for the fixed history panel */
   padding-bottom: var(--kgpu-history-h);
 }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--kgpu-card-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--kgpu-card-border); border-radius: 2px; }
 
 /* ── Navbar ────────────────────────────────────────────────────────────── */
 .kgpu-navbar {
   background: var(--kgpu-navbar-bg) !important;
   border-bottom: 1px solid var(--kgpu-card-border);
-  min-height: 58px;
-  transition: background 0.25s ease;
+  min-height: 46px;
 }
 
+/* Brand — plain bold text, no gradient */
 .kgpu-brand {
-  font-weight: 800;
-  font-size: 1.1rem;
-  letter-spacing: -0.3px;
-  background: linear-gradient(135deg, #a78bfa, #ec4899);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: -0.2px;
+  color: var(--kgpu-text);
   text-decoration: none;
 }
 
@@ -97,32 +96,29 @@ body {
   background: transparent;
   border: 1px solid var(--kgpu-card-border);
   color: var(--kgpu-muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 500;
-  padding: 0.3rem 0.75rem;
-  border-radius: 20px;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--kgpu-radius-sm);
 }
 
 .kgpu-gpu-badge {
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #a78bfa;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.3rem 0.75rem;
-  border-radius: 20px;
+  background: transparent;
+  border: 1px solid var(--kgpu-card-border);
+  color: var(--kgpu-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--kgpu-radius-sm);
 }
 
-/* WS status dot */
+/* WS status dot — no glow */
 .kgpu-ws-dot {
-  font-size: 0.85rem;
+  font-size: 0.7rem;
   color: var(--kgpu-power);
-  transition: color 0.4s;
-  filter: drop-shadow(0 0 4px currentColor);
 }
 .kgpu-ws-dot.connected {
-  color: #10b981;
-  filter: drop-shadow(0 0 4px #10b981);
+  color: #2f9e44;
 }
 
 /* Theme toggle */
@@ -131,26 +127,25 @@ body {
   border: 1px solid var(--kgpu-card-border);
   color: var(--kgpu-muted);
   border-radius: var(--kgpu-radius-sm);
-  padding: 0.3rem 0.55rem;
-  transition: all 0.2s;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
 }
 .kgpu-theme-btn:hover {
-  border-color: #a78bfa;
-  color: #a78bfa;
+  border-color: var(--kgpu-muted);
+  color: var(--kgpu-text);
 }
 
 /* ── Filter bar ────────────────────────────────────────────────────────── */
 .kgpu-filterbar {
   background: var(--kgpu-filterbar-bg);
   border-color: var(--kgpu-card-border) !important;
-  transition: background 0.25s ease;
 }
 
 .kgpu-filter-label {
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
+  letter-spacing: 0.5px;
   color: var(--kgpu-muted);
   white-space: nowrap;
   margin-bottom: 0;
@@ -161,15 +156,14 @@ body {
   background: var(--kgpu-select-bg) !important;
   border-color: var(--kgpu-card-border) !important;
   color: var(--kgpu-text) !important;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   border-radius: var(--kgpu-radius-sm) !important;
-  min-width: 140px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 130px;
 }
 .kgpu-select:focus,
 .kgpu-input:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  border-color: var(--kgpu-active) !important;
+  box-shadow: none !important;
   outline: none;
 }
 
@@ -177,47 +171,56 @@ body {
 .kgpu-main {
   flex: 1;
   background: var(--kgpu-main-bg);
-  transition: background 0.25s ease;
 }
 
-/* Empty state */
+/* Empty state — spans full width of the flex row */
 .kgpu-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 260px;
+  min-height: 220px;
   color: var(--kgpu-muted);
+  width: 100%;
 }
 
-/* ── Node section ──────────────────────────────────────────────────────── */
+/* ── Node sections — horizontal layout ─────────────────────────────────── */
+
+/* main-grid becomes a horizontal flex container of node columns */
+.kgpu-main {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .kgpu-node-section {
-  margin-bottom: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
 }
 
 .kgpu-node-heading {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.7rem;
-  font-weight: 800;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.1px;
-  color: #a78bfa;
-  margin-bottom: 1rem;
+  letter-spacing: 0.8px;
+  color: var(--kgpu-muted);
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--kgpu-card-border);
+  white-space: nowrap;
 }
 
-.kgpu-node-heading::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(167, 139, 250, 0.35), transparent);
-}
-
+/* GPU cards stack vertically within each node column */
 .kgpu-gpu-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 /* ── GPU card ──────────────────────────────────────────────────────────── */
@@ -225,50 +228,16 @@ body {
   width: var(--kgpu-card-w);
   background: var(--kgpu-card-bg);
   border: 1px solid var(--kgpu-card-border);
+  border-top: 2px solid var(--kgpu-vendor-color, var(--kgpu-active));
   border-radius: var(--kgpu-radius);
-  padding: 1.1rem;
+  padding: 0.7rem 0.8rem;
   cursor: pointer;
   position: relative;
-  overflow: hidden;
-  transition:
-    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background 0.25s ease;
-}
-
-/* Vendor accent bar at top */
-.kgpu-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--kgpu-vendor-color, #6366f1);
-  box-shadow: 0 0 10px var(--kgpu-vendor-color, #6366f1);
-}
-
-/* Subtle corner glow */
-.kgpu-card::after {
-  content: '';
-  position: absolute;
-  top: -30px; right: -30px;
-  width: 100px; height: 100px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--kgpu-vendor-color, #6366f1) 10%, transparent),
-    transparent 70%
-  );
-  pointer-events: none;
 }
 
 .kgpu-card:hover {
-  transform: translateY(-4px) scale(1.01);
-  border-color: var(--kgpu-vendor-color, #6366f1);
-  box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.18),
-    0 0 0 1px var(--kgpu-vendor-color, #6366f1),
-    0 0 20px color-mix(in srgb, var(--kgpu-vendor-color, #6366f1) 25%, transparent);
+  border-color: var(--kgpu-vendor-color, var(--kgpu-active));
+  border-top-color: var(--kgpu-vendor-color, var(--kgpu-active));
 }
 
 /* Vendor colour bindings */
@@ -281,115 +250,104 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.6rem;
 }
 
 .kgpu-gpu-id {
-  font-size: 0.65rem;
-  font-weight: 800;
+  font-size: 0.62rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.9px;
-  color: var(--kgpu-vendor-color, #6366f1);
+  letter-spacing: 0.6px;
+  color: var(--kgpu-vendor-color, var(--kgpu-active));
 }
 
 .kgpu-gpu-name {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--kgpu-muted);
-  margin-top: 2px;
+  margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
-  font-weight: 500;
+  max-width: 130px;
+  font-weight: 400;
 }
 
 .kgpu-vendor-badge {
-  font-size: 0.6rem;
-  font-weight: 800;
+  font-size: 0.58rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  padding: 0.2rem 0.55rem;
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--kgpu-vendor-color, #6366f1) 15%, transparent);
-  color: var(--kgpu-vendor-color, #6366f1);
-  border: 1px solid color-mix(in srgb, var(--kgpu-vendor-color, #6366f1) 30%, transparent);
+  letter-spacing: 0.4px;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--kgpu-radius-sm);
+  background: transparent;
+  color: var(--kgpu-vendor-color, var(--kgpu-active));
+  border: 1px solid var(--kgpu-vendor-color, var(--kgpu-active));
 }
 
 /* ── Metric rows ───────────────────────────────────────────────────────── */
 .kgpu-metrics {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 .kgpu-metric {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .kgpu-metric-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
 }
 
 .kgpu-metric-label {
   color: var(--kgpu-muted);
-  font-weight: 500;
+  font-weight: 400;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .kgpu-metric-value {
-  font-weight: 700;
-  font-size: 0.75rem;
+  font-weight: 600;
+  font-size: 0.72rem;
   color: var(--kgpu-text);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Progress bar */
+/* Progress bar — flat, no glow */
 .kgpu-bar {
   height: var(--kgpu-bar-h);
   background: var(--kgpu-bar-track);
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
 }
 
 .kgpu-bar-fill {
   height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 2px;
+  transition: width 0.4s ease;
 }
 
-.kgpu-bar-fill.util  {
-  background: linear-gradient(90deg, #4f46e5, #a78bfa);
-  box-shadow: 0 0 6px rgba(167, 139, 250, 0.45);
-}
-.kgpu-bar-fill.vram  {
-  background: linear-gradient(90deg, #0891b2, #06b6d4);
-  box-shadow: 0 0 6px rgba(6, 182, 212, 0.45);
-}
-.kgpu-bar-fill.temp  {
-  background: linear-gradient(90deg, #d97706, #f59e0b);
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
-}
-.kgpu-bar-fill.power {
-  background: linear-gradient(90deg, #dc2626, #ef4444);
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
-}
+.kgpu-bar-fill.util  { background: var(--kgpu-util); }
+.kgpu-bar-fill.vram  { background: var(--kgpu-vram); }
+.kgpu-bar-fill.temp  { background: var(--kgpu-temp); }
+.kgpu-bar-fill.power { background: var(--kgpu-power); }
 
 /* ── Pod info ──────────────────────────────────────────────────────────── */
 .kgpu-pod {
-  margin-top: 0.85rem;
-  padding-top: 0.75rem;
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--kgpu-card-border);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--kgpu-muted);
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   overflow: hidden;
 }
 
@@ -402,11 +360,11 @@ body {
 }
 
 .kgpu-pod-ns {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   background: var(--kgpu-bar-track);
   border: 1px solid var(--kgpu-card-border);
-  border-radius: 10px;
-  padding: 1px 6px;
+  border-radius: var(--kgpu-radius-sm);
+  padding: 0 5px;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -427,18 +385,10 @@ body {
   z-index: 1040;
   display: none;
   flex-direction: column;
-  box-shadow: 0 -6px 32px rgba(0, 0, 0, 0.18);
-  transition: background 0.25s ease;
 }
 
 .kgpu-history-panel.visible {
   display: flex;
-  animation: kgpuSlideUp 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes kgpuSlideUp {
-  from { transform: translateY(100%); opacity: 0; }
-  to   { transform: translateY(0);   opacity: 1; }
 }
 
 .kgpu-history-header {
@@ -447,39 +397,35 @@ body {
 }
 
 .kgpu-history-icon {
-  color: #a78bfa;
-  font-size: 1rem;
+  color: var(--kgpu-muted);
+  font-size: 0.9rem;
 }
 
+/* History title — plain text, no gradient */
 .kgpu-history-title {
-  font-weight: 700;
-  font-size: 0.875rem;
-  background: linear-gradient(135deg, #a78bfa, #06b6d4);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--kgpu-text);
 }
 
 /* Range buttons */
 .kgpu-range-btn {
-  background: var(--kgpu-bar-track);
+  background: var(--kgpu-select-bg);
   border: 1px solid var(--kgpu-card-border);
   color: var(--kgpu-muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  padding: 0.25rem 0.65rem;
-  transition: all 0.2s;
+  padding: 0.2rem 0.55rem;
 }
 .kgpu-range-btn:hover {
-  border-color: #6366f1;
-  color: #a78bfa;
-  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--kgpu-active);
+  color: var(--kgpu-active);
+  background: var(--kgpu-select-bg);
 }
 .kgpu-range-btn.active {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border-color: #6366f1;
-  color: #fff;
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+  background: var(--kgpu-active);
+  border-color: var(--kgpu-active);
+  color: var(--kgpu-active-text);
 }
 
 /* Close button */
@@ -488,13 +434,12 @@ body {
   border: 1px solid var(--kgpu-card-border);
   color: var(--kgpu-muted);
   border-radius: var(--kgpu-radius-sm);
-  padding: 0.25rem 0.55rem;
-  transition: all 0.2s;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
 }
 .kgpu-close-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: #ef4444;
-  color: #ef4444;
+  border-color: var(--kgpu-power);
+  color: var(--kgpu-power);
 }
 
 /* Chart area */
@@ -512,19 +457,18 @@ body {
   background: var(--kgpu-chart-bg);
   border: 1px solid var(--kgpu-card-border);
   border-radius: var(--kgpu-radius-sm);
-  padding: 0.6rem 0.75rem;
+  padding: 0.4rem 0.6rem;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   overflow: hidden;
-  transition: background 0.25s ease;
 }
 
 .kgpu-chart-label {
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.62rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
+  letter-spacing: 0.5px;
   color: var(--kgpu-muted);
   flex-shrink: 0;
 }

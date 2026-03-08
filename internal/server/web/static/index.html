@@ -15,24 +15,24 @@
 <body>
 
   <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
-  <nav class="navbar navbar-expand-lg kgpu-navbar sticky-top">
-    <div class="container-fluid px-4">
+  <nav class="navbar kgpu-navbar sticky-top">
+    <div class="container-fluid px-3">
 
       <!-- Brand -->
-      <a class="navbar-brand kgpu-brand d-flex align-items-center gap-2" href="#">
-        <i class="bi bi-gpu-card fs-5"></i>
+      <a class="navbar-brand kgpu-brand d-flex align-items-center gap-2 me-3" href="#">
+        <i class="bi bi-gpu-card"></i>
         <span>kgpudash</span>
       </a>
 
       <!-- Cluster pill -->
-      <span class="badge kgpu-cluster-badge ms-2 me-auto" id="cluster-label">
+      <span class="kgpu-cluster-badge me-auto" id="cluster-label">
         <i class="bi bi-hdd-network me-1"></i>connecting…
       </span>
 
       <!-- Right side -->
-      <div class="d-flex align-items-center gap-3">
+      <div class="d-flex align-items-center gap-2">
         <!-- GPU count -->
-        <span class="badge kgpu-gpu-badge" id="gpu-count">
+        <span class="kgpu-gpu-badge" id="gpu-count">
           <i class="bi bi-gpu-card me-1"></i>0 GPUs
         </span>
 
@@ -51,7 +51,7 @@
 
   <!-- ── Filter bar ───────────────────────────────────────────────────────── -->
   <div class="kgpu-filterbar border-bottom">
-    <div class="container-fluid px-4 py-2 d-flex flex-wrap align-items-center gap-3">
+    <div class="container-fluid px-3 py-1 d-flex flex-wrap align-items-center gap-3">
 
       <div class="d-flex align-items-center gap-2">
         <label class="kgpu-filter-label" for="filter-vendor">
@@ -86,7 +86,7 @@
   </div>
 
   <!-- ── Main content ─────────────────────────────────────────────────────── -->
-  <main class="container-fluid px-4 py-4 kgpu-main" id="main-grid">
+  <main class="container-fluid px-3 py-3 kgpu-main" id="main-grid">
 
     <!-- Empty state -->
     <div class="kgpu-empty" id="empty-state">
