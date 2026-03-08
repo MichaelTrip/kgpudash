@@ -40,10 +40,9 @@ func main() {
 	defer cancel()
 
 	// ── Kubernetes mapper ────────────────────────────────────────────
-	mapper, err := k8s.NewMapper(log, kubeconfig)
-	if err != nil {
-		log.Fatal("failed to create k8s mapper", zap.Error(err))
-	}
+	// Falls back to a no-op mapper when no cluster is reachable so the
+	// server can run locally without any Kubernetes configuration.
+	mapper := k8s.NewMapperOrNoop(log, kubeconfig)
 	go mapper.Start(ctx, 15*time.Second)
 
 	// ── Metrics store ────────────────────────────────────────────────
@@ -120,11 +119,21 @@ func watchAgentPods(ctx context.Context, log *zap.Logger, agg *aggregator.Aggreg
 
 // discoverAndConnect finds agent pods and connects to new ones.
 // In a real deployment the agent pod IPs come from the Kubernetes API.
-// Here we use the NODE_IPS environment variable as a simple bootstrap
-// mechanism (comma-separated list of node IPs or hostnames).
+// NODE_IPS is a comma-separated list of node IPs or hostnames used as a
+// simple bootstrap mechanism. When NODE_IPS is not set the server falls
+// back to connecting to a local agent on 127.0.0.1 so that running both
+// binaries on the same machine works without any configuration.
 func discoverAndConnect(ctx context.Context, log *zap.Logger, agg *aggregator.Aggregator, agentPort string, connected map[string]bool) {
 	nodeIPs := os.Getenv("NODE_IPS")
 	if nodeIPs == "" {
+		// Zero-config fallback: connect to a local agent.
+		const localHost = "127.0.0.1"
+		if !connected[localHost] {
+			addr := fmt.Sprintf("%s:%s", localHost, agentPort)
+			log.Info("NODE_IPS not set, connecting to local agent", zap.String("addr", addr))
+			agg.ConnectAgent(ctx, localHost, addr)
+			connected[localHost] = true
+		}
 		return
 	}
 

@@ -76,6 +76,21 @@ func NewMapper(log *zap.Logger, kubeconfig string) (*Mapper, error) {
 	}, nil
 }
 
+// NewMapperOrNoop attempts to create a real Mapper but falls back to a no-op
+// Mapper (no Kubernetes client) when no cluster is reachable. This allows the
+// server to run locally without a Kubernetes environment.
+func NewMapperOrNoop(log *zap.Logger, kubeconfig string) *Mapper {
+	m, err := NewMapper(log, kubeconfig)
+	if err != nil {
+		log.Warn("kubernetes unavailable, pod-GPU mapping disabled", zap.Error(err))
+		return &Mapper{
+			log:    log,
+			byNode: make(map[string][]PodGPUInfo),
+		}
+	}
+	return m
+}
+
 // Start begins a background refresh loop that re-syncs pod-GPU mappings
 // every refreshInterval. It stops when ctx is cancelled.
 func (m *Mapper) Start(ctx context.Context, refreshInterval time.Duration) {

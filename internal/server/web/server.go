@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"time"
@@ -49,8 +50,22 @@ func New(log *zap.Logger, agg *aggregator.Aggregator, addr string) *Server {
 
 // registerRoutes wires up all HTTP routes.
 func (s *Server) registerRoutes() {
-	// Static assets embedded in the binary.
-	s.mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	// Strip the "static/" prefix from the embedded FS so that files are
+	// served at their bare names (e.g. /index.html, /app.js, /style.css).
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		panic("web: failed to sub static FS: " + err.Error())
+	}
+	fileServer := http.FileServer(http.FS(sub))
+
+	// Redirect bare "/" to the dashboard.
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/index.html", http.StatusFound)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 
 	// Health check endpoint (used by Kubernetes probes).
 	s.mux.HandleFunc("/healthz", s.handleHealth)
