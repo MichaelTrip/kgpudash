@@ -23,10 +23,11 @@ type IntelCollector struct {
 }
 
 type intelCard struct {
-	index  int
-	path   string // e.g. /sys/class/drm/card0/device
-	name   string
-	driver string // "i915" or "xe"
+	index    int
+	path     string // e.g. /sys/class/drm/card0/device
+	cardPath string // e.g. /sys/class/drm/card0  (freq files live here on i915)
+	name     string
+	driver   string // "i915" or "xe"
 }
 
 // NewIntelCollector creates a new Intel GPU collector.
@@ -91,11 +92,15 @@ func (c *IntelCollector) discoverSysfs() []intelCard {
 			name = strings.TrimSpace(string(nameData))
 		}
 
+		// cardPath is the parent of devPath: /sys/class/drm/card0
+		cardPath := filepath.Dir(devPath)
+
 		cards = append(cards, intelCard{
-			index:  idx,
-			path:   devPath,
-			name:   name,
-			driver: driver,
+			index:    idx,
+			path:     devPath,
+			cardPath: cardPath,
+			name:     name,
+			driver:   driver,
 		})
 		idx++
 	}
@@ -135,10 +140,10 @@ func (c *IntelCollector) collectSysfs() ([]GPUInfo, error) {
 		info.VRAMUsedMB, info.VRAMTotalMB = c.readVRAM(card)
 
 		// Temperature
-		info.TempCelsius = c.readHwmonTemp(card.path)
+		info.TempCelsius = c.readHwmonTemp(card)
 
 		// Power
-		info.PowerWatts = c.readHwmonPower(card.path)
+		info.PowerWatts = c.readHwmonPower(card)
 
 		gpus = append(gpus, info)
 	}
@@ -147,54 +152,54 @@ func (c *IntelCollector) collectSysfs() ([]GPUInfo, error) {
 
 // readUtilization attempts to read GPU busy percentage from sysfs.
 // It uses act_freq/max_freq as a proxy, clamped to [0, 100].
+//
+// Path layout varies by driver and kernel version:
+//   - xe driver (newer):  card.path/tile0/gt0/gt_act_freq_mhz
+//   - i915 (newer):       card.path/gt/gt0/rps_cur_freq_mhz
+//   - i915 (Skylake era): card.cardPath/gt_act_freq_mhz  (directly under /sys/class/drm/cardN)
 func (c *IntelCollector) readUtilization(card intelCard) float64 {
-	// Try xe driver: act_freq / max_freq * 100
-	actPath := filepath.Join(card.path, "tile0", "gt0", "gt_act_freq_mhz")
-	maxPath := filepath.Join(card.path, "tile0", "gt0", "gt_max_freq_mhz")
+	type freqPair struct{ cur, max string }
+	candidates := []freqPair{
+		// xe driver
+		{
+			filepath.Join(card.path, "tile0", "gt0", "gt_act_freq_mhz"),
+			filepath.Join(card.path, "tile0", "gt0", "gt_max_freq_mhz"),
+		},
+		// i915 newer kernels (device/gt/gt0/)
+		{
+			filepath.Join(card.path, "gt", "gt0", "rps_cur_freq_mhz"),
+			filepath.Join(card.path, "gt", "gt0", "rps_max_freq_mhz"),
+		},
+		// i915 Skylake/older: files live directly under /sys/class/drm/cardN
+		{
+			filepath.Join(card.cardPath, "gt_act_freq_mhz"),
+			filepath.Join(card.cardPath, "gt_max_freq_mhz"),
+		},
+		{
+			filepath.Join(card.cardPath, "gt_cur_freq_mhz"),
+			filepath.Join(card.cardPath, "gt_max_freq_mhz"),
+		},
+	}
 
-	actData, actErr := os.ReadFile(actPath)
-	maxData, maxErr := os.ReadFile(maxPath)
-	if actErr == nil && maxErr == nil {
-		act, err1 := strconv.ParseFloat(strings.TrimSpace(string(actData)), 64)
+	for _, p := range candidates {
+		curData, curErr := os.ReadFile(p.cur)
+		maxData, maxErr := os.ReadFile(p.max)
+		if curErr != nil || maxErr != nil {
+			continue
+		}
+		cur, err1 := strconv.ParseFloat(strings.TrimSpace(string(curData)), 64)
 		max, err2 := strconv.ParseFloat(strings.TrimSpace(string(maxData)), 64)
-		if err1 == nil && err2 == nil && max > 0 {
-			pct := (act / max) * 100.0
-			if pct > 100 {
-				pct = 100
-			}
-			if pct < 0 {
-				pct = 0
-			}
-			return pct
+		if err1 != nil || err2 != nil || max <= 0 {
+			continue
 		}
-	}
-
-	// Try i915 driver: cur_freq / max_freq * 100
-	curPatterns := []string{
-		filepath.Join(card.path, "gt", "gt0", "rps_cur_freq_mhz"),
-		filepath.Join(card.path, "gt0_cur_freq_mhz"),
-	}
-	maxPatterns := []string{
-		filepath.Join(card.path, "gt", "gt0", "rps_max_freq_mhz"),
-		filepath.Join(card.path, "gt0_max_freq_mhz"),
-	}
-	for i := range curPatterns {
-		curData, curErr := os.ReadFile(curPatterns[i])
-		mxData, mxErr := os.ReadFile(maxPatterns[i])
-		if curErr == nil && mxErr == nil {
-			cur, err1 := strconv.ParseFloat(strings.TrimSpace(string(curData)), 64)
-			mx, err2 := strconv.ParseFloat(strings.TrimSpace(string(mxData)), 64)
-			if err1 == nil && err2 == nil && mx > 0 {
-				pct := (cur / mx) * 100.0
-				if pct > 100 {
-					pct = 100
-				}
-				if pct < 0 {
-					pct = 0
-				}
-				return pct
-			}
+		pct := (cur / max) * 100.0
+		if pct > 100 {
+			pct = 100
 		}
+		if pct < 0 {
+			pct = 0
+		}
+		return pct
 	}
 
 	return 0
@@ -221,12 +226,21 @@ func (c *IntelCollector) readVRAM(card intelCard) (used, total uint64) {
 }
 
 // readHwmonTemp reads temperature from hwmon sysfs.
-func (c *IntelCollector) readHwmonTemp(devPath string) float64 {
-	hwmons, _ := filepath.Glob(filepath.Join(devPath, "hwmon", "hwmon*", "temp1_input"))
-	for _, f := range hwmons {
-		if data, err := os.ReadFile(f); err == nil {
-			if v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
-				return v / 1000.0
+// Checks both device/hwmon and card-level hwmon paths.
+func (c *IntelCollector) readHwmonTemp(card intelCard) float64 {
+	patterns := []string{
+		filepath.Join(card.path, "hwmon", "hwmon*", "temp1_input"),
+		filepath.Join(card.cardPath, "device", "hwmon", "hwmon*", "temp1_input"),
+		// coretemp fallback via /sys/class/hwmon
+		"/sys/class/hwmon/hwmon*/temp1_input",
+	}
+	for _, pat := range patterns {
+		hwmons, _ := filepath.Glob(pat)
+		for _, f := range hwmons {
+			if data, err := os.ReadFile(f); err == nil {
+				if v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && v > 0 {
+					return v / 1000.0
+				}
 			}
 		}
 	}
@@ -234,12 +248,18 @@ func (c *IntelCollector) readHwmonTemp(devPath string) float64 {
 }
 
 // readHwmonPower reads power draw from hwmon sysfs.
-func (c *IntelCollector) readHwmonPower(devPath string) float64 {
-	hwmons, _ := filepath.Glob(filepath.Join(devPath, "hwmon", "hwmon*", "power1_input"))
-	for _, f := range hwmons {
-		if data, err := os.ReadFile(f); err == nil {
-			if v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
-				return v / 1_000_000.0
+func (c *IntelCollector) readHwmonPower(card intelCard) float64 {
+	patterns := []string{
+		filepath.Join(card.path, "hwmon", "hwmon*", "power1_input"),
+		filepath.Join(card.cardPath, "device", "hwmon", "hwmon*", "power1_input"),
+	}
+	for _, pat := range patterns {
+		hwmons, _ := filepath.Glob(pat)
+		for _, f := range hwmons {
+			if data, err := os.ReadFile(f); err == nil {
+				if v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && v > 0 {
+					return v / 1_000_000.0
+				}
 			}
 		}
 	}
