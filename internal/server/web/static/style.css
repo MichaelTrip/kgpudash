@@ -1,6 +1,10 @@
 /* ── Reset & base ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Ensure the page fills the viewport and allows scrolling */
+html { height: 100%; }
+body { min-height: 100%; display: flex; flex-direction: column; }
+
 :root {
   --bg:          #0d0f1a;
   --surface:     #13162a;
@@ -35,7 +39,6 @@
 }
 
 html, body {
-  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -156,7 +159,14 @@ html, body {
 /* ── Main grid ───────────────────────────────────────────────────── */
 .main-grid {
   padding: 28px;
-  overflow-y: auto;
+  /* Extra bottom padding so content isn't hidden behind the history panel */
+  padding-bottom: 380px;
+  flex: 1;
+}
+
+/* When history panel is open, ensure body doesn't scroll under it */
+body.history-open .main-grid {
+  padding-bottom: 380px;
 }
 
 .empty-state {
@@ -386,7 +396,7 @@ html, body {
 .history-panel {
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  height: 340px;
+  height: min(360px, 45vh);
   background: linear-gradient(180deg, #13162a 0%, #0d0f1a 100%);
   border-top: 1px solid rgba(124,58,237,0.35);
   z-index: 200;
@@ -476,20 +486,23 @@ html, body {
 .history-charts {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  padding: 14px 24px;
+  gap: 10px;
+  padding: 10px 20px 14px;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
 .chart-wrap {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  padding: 8px 10px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chart-wrap label {
