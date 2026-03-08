@@ -15,6 +15,9 @@ import (
 	"github.com/MichaelTrip/kgpudash/internal/server/aggregator"
 )
 
+// indexHTML is the content of index.html, read once at startup.
+var indexHTML []byte
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
@@ -51,20 +54,30 @@ func New(log *zap.Logger, agg *aggregator.Aggregator, addr string) *Server {
 // registerRoutes wires up all HTTP routes.
 func (s *Server) registerRoutes() {
 	// Strip the "static/" prefix from the embedded FS so that files are
-	// served at their bare names (e.g. /index.html, /app.js, /style.css).
+	// served at their bare names (e.g. /app.js, /style.css).
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		panic("web: failed to sub static FS: " + err.Error())
 	}
+
+	// Read index.html once. We serve it manually for "/" to avoid the
+	// infinite redirect loop that http.FileServer causes when it strips
+	// the ".html" extension and redirects /index.html → /.
+	html, err := fs.ReadFile(sub, "index.html")
+	if err != nil {
+		panic("web: failed to read index.html: " + err.Error())
+	}
+	indexHTML = html
+
 	fileServer := http.FileServer(http.FS(sub))
 
-	// Serve index.html directly for "/" without a redirect so that
-	// port-forwarded and proxied deployments work correctly.
+	// Serve the dashboard for "/" and "/index.html" directly from memory.
+	// All other paths fall through to the embedded file server.
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/index.html"
-			fileServer.ServeHTTP(w, r2)
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			w.Write(indexHTML)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
